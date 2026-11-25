@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>風力発電 測定・計算ツール</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172033;background:#f3f6fb}
+*{box-sizing:border-box}body{margin:0;padding:24px}
+main{max-width:1050px;margin:auto}.hero{background:#173b68;color:white;padding:26px 28px;border-radius:18px;margin-bottom:18px}
+h1{font-size:clamp(1.45rem,3vw,2rem);margin:0 0 8px}.hero p{margin:0;color:#dce8f7}
+.tabs{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
+button{border:0;border-radius:10px;padding:11px 16px;font-weight:650;cursor:pointer;background:#e4eaf3;color:#19314f}
+button.primary{background:#1769aa;color:white}button:disabled{opacity:.45;cursor:not-allowed}
+.panel{background:white;border:1px solid #e0e7f0;border-radius:16px;padding:20px;margin:14px 0;box-shadow:0 4px 16px #173b680b}
+h2{font-size:1.12rem;margin:0 0 14px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.metric{background:#f3f7fc;border-radius:13px;padding:16px}.metric small{display:block;color:#5d6c80}
+.metric strong{display:block;font-size:1.8rem;margin-top:5px;font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+label{display:block;font-size:.9rem;color:#46566d;margin:10px 0 5px}
+input{width:100%;padding:11px 12px;border:1px solid #cbd5e1;border-radius:9px;font:inherit}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center}
+.status{font-size:.9rem;color:#52657d}.note{font-size:.88rem;line-height:1.65;color:#52657d;background:#f7f9fc;padding:12px 14px;border-radius:10px;margin-top:12px}
+.warning{color:#854d0e;background:#fff8e8;border:1px solid #f2dfb6}
+.good{color:#17603b}.hidden{display:none}
+canvas{width:100%;height:220px;border:1px solid #e0e7f0;border-radius:10px}
+footer{font-size:.82rem;color:#69788c;padding:12px 2px}
+@media(max-width:650px){body{padding:12px}.metrics{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.hero{padding:20px}}
+</style>
+<script src="https://699.jp/src/js/akadako.js"></script>
+</head>
+<body>
+<main>
+<header class="hero">
+<h1>風力発電 測定・計算ツール</h1>
+<p>AkaDakoによる測定と、電圧・抵抗値からの手動計算を行います。</p>
+</header>
+<div class="tabs">
+<button id="liveTab" class="primary" type="button">AkaDakoで測定</button>
+<button id="manualTab" type="button">手動で計算</button>
+</div>
+
+<section id="livePanel">
+<div class="panel">
+<h2>AkaDako 接続</h2>
+<p class="status" id="connectionStatus">未接続です。タコラッチminiをUSBで接続してください。</p>
+<div class="actions">
+<button class="primary" id="connectBtn" type="button">AkaDakoに接続</button>
+<button id="stopBtn" type="button" disabled>測定停止</button>
+<button id="clearBtn" type="button">記録をリセット</button>
+</div>
+<div class="note warning">
+<strong>換算方法について</strong><br>
+TFW-AD-PWR1の公開仕様では、電圧は0〜20V、電流は0〜2Aです。A1・A2の読み取り値が0〜100の比例値である前提で、A1×0.2をV、A2×20をmAに換算します。実際の測定精度は、テスター等との比較で確認してください。
+</div>
+</div>
+
+<div class="panel">
+<h2>リアルタイム測定値</h2>
+<div class="metrics">
+<div class="metric"><small>電圧</small><strong><span id="voltage">--</span> <small>V</small></strong></div>
+<div class="metric"><small>電流</small><strong><span id="current">--</span> <small>mA</small></strong></div>
+<div class="metric"><small>電力</small><strong><span id="power">--</span> <small>mW</small></strong></div>
+</div>
+<p class="status" id="rawValues">A1生値: -- ／ A2生値: --</p>
+</div>
+
+<div class="panel">
+<h2>測定グラフ（電圧・電流）</h2>
+<canvas id="chart" width="1000" height="240"></canvas>
+<div class="actions"><button id="csvBtn" type="button">CSVをダウンロード</button></div>
+</div>
+</section>
+
+<section id="manualPanel" class="hidden">
+<div class="panel">
+<h2>手動計算</h2>
+<div class="grid">
+<div><label for="manualV">抵抗の両端で測定した電圧（V）</label><input id="manualV" type="number" min="0" step="any" placeholder="例：2.5"></div>
+<div><label for="manualR">抵抗値（Ω）</label><input id="manualR" type="number" min="0" step="any" placeholder="例：1000"></div>
+</div>
+<div class="actions"><button class="primary" id="calcBtn" type="button">計算する</button></div>
+<div class="metrics" style="margin-top:16px">
+<div class="metric"><small>電圧</small><strong><span id="manualVoltage">--</span> <small>V</small></strong></div>
+<div class="metric"><small>電流</small><strong><span id="manualCurrent">--</span> <small>mA</small></strong></div>
+<div class="metric"><small>電力</small><strong><span id="manualPower">--</span> <small>mW</small></strong></div>
+</div>
+<div class="note warning">入力する電圧は、発電機の無負荷電圧ではなく、抵抗の両端に実際にかかっている電圧です。</div>
+<p id="formula" class="status"></p>
+</div>
+</section>
+<footer>測定値は、AkaDakoの入力仕様・配線・換算の校正状態に依存します。電力測定ボードの入力は安全のため5V・1A以下で使用してください。</footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let board = null, reading = false, timer = null;
+let records = [];
+
+function showTab(which){
+  const live = which === "live";
+  $("livePanel").classList.toggle("hidden", !live);
+  $("manualPanel").classList.toggle("hidden", live);
+  $("liveTab").classList.toggle("primary", live);
+  $("manualTab").classList.toggle("primary", !live);
+}
+$("liveTab").addEventListener("click",()=>showTab("live"));
+$("manualTab").addEventListener("click",()=>showTab("manual"));
+
+function drawChart(){
+  const c=$("chart"),ctx=c.getContext("2d"),w=c.width,h=c.height;
+  ctx.clearRect(0,0,w,h);ctx.strokeStyle="#e5ebf3";ctx.lineWidth=1;
+  for(let n=0;n<5;n++){let y=20+n*(h-40)/4;ctx.beginPath();ctx.moveTo(42,y);ctx.lineTo(w-12,y);ctx.stroke();}
+  const data=records.slice(-120); if(data.length<2)return;
+  const maxV=Math.max(0.1,...data.map(x=>x.v)),maxI=Math.max(0.1,...data.map(x=>x.i));
+  function line(key,max,color){
+    ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=2;
+    data.forEach((p,n)=>{let x=42+n*(w-58)/(data.length-1),y=h-20-(p[key]/max)*(h-40);n?ctx.lineTo(x,y):ctx.moveTo(x,y)});
+    ctx.stroke();
+  }
+  line("v",maxV,"#1769aa");line("i",maxI,"#d97706");
+  ctx.fillStyle="#1769aa";ctx.fillText("電圧 (V)",48,15);
+  ctx.fillStyle="#d97706";ctx.fillText("電流 (mA)",130,15);
+}
+
+function update(v,i,raw1,raw2){
+  const p=v*i;
+  const now=new Date();
+  $("voltage").textContent=v.toFixed(3);
+  $("current").textContent=i.toFixed(3);
+  $("power").textContent=p.toFixed(3);
+  $("rawValues").textContent=`A1生値: ${Number(raw1).toFixed(3)} ／ A2生値: ${Number(raw2).toFixed(3)}`;
+  records.push({time:now.toISOString(),v,i,p,raw1,raw2});
+  if(records.length>2000)records.shift();
+  drawChart();
+}
+
+async function readOnce(){
+  if(!board || !reading)return;
+  try{
+    const raw1=await board.analog(AkaDako.AnalogRead.A1);
+    const raw2=await board.analog(AkaDako.AnalogRead.A2);
+    const a1=Number(raw1),a2=Number(raw2);
+    if(!Number.isFinite(a1)||!Number.isFinite(a2))throw new Error("アナログ値を数値として取得できません。");
+    // 公開仕様のフルスケール（A1: 20V、A2: 2A）と0〜100スケールから換算
+    const v=a1*0.2;
+    const i=a2*20; // mA
+    update(v,i,a1,a2);
+  }catch(e){
+    $("connectionStatus").textContent="読み取りエラー："+(e?.message||String(e));
+    stopReading();
+  }
+  if(reading)timer=setTimeout(readOnce,250);
+}
+
+function stopReading(){
+  reading=false;if(timer)clearTimeout(timer);timer=null;
+  $("stopBtn").disabled=true;
+}
+$("connectBtn").addEventListener("click",async()=>{
+  if(!window.AkaDako || typeof AkaDako.connect!=="function"){
+    $("connectionStatus").textContent="AkaDakoライブラリを読み込めません。ページを再読み込みしてください。";return;
+  }
+  $("connectBtn").disabled=true;
+  $("connectionStatus").textContent="接続中です。ブラウザの接続許可が表示されたらタコラッチminiを選択してください。";
+  try{
+    board=await AkaDako.connect();
+    $("connectionStatus").textContent="接続しました。A1・A2を読み取っています。";
+    if(typeof board.onDisconnected==="function")board.onDisconnected(()=>{
+      stopReading();board=null;$("connectionStatus").textContent="AkaDakoが切断されました。";
+    });
+    reading=true;$("stopBtn").disabled=false;readOnce();
+  }catch(e){
+    $("connectionStatus").textContent="接続できませんでした："+(e?.message||String(e));
+    board=null;
+  }finally{$("connectBtn").disabled=false;}
+});
+$("stopBtn").addEventListener("click",stopReading);
+$("clearBtn").addEventListener("click",()=>{
+  records=[];
+  ["voltage","current","power"].forEach(id=>$(id).textContent="--");
+  $("rawValues").textContent="A1生値: -- ／ A2生値: --";
+  drawChart();
+});
+$("csvBtn").addEventListener("click",()=>{
+  if(!records.length){alert("保存する測定記録がありません。");return;}
+  const rows=[["時刻","電圧_V","電流_mA","電力_mW","A1生値","A2生値"],
+    ...records.map(r=>[r.time,r.v,r.i,r.p,r.raw1,r.raw2])];
+  const csv="\uFEFF"+rows.map(row=>row.map(x=>`"${String(x).replaceAll('"','""')}"`).join(",")).join("\r\n");
+  const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  const a=document.createElement("a");a.href=url;a.download="wind_power_measurements.csv";a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+$("calcBtn").addEventListener("click",()=>{
+  const v=Number($("manualV").value),r=Number($("manualR").value);
+  if($("manualV").value===""||$("manualR").value===""||!Number.isFinite(v)||!Number.isFinite(r)||v<0||r<=0){
+    alert("電圧は0以上、抵抗値は0より大きい数値を入力してください。");return;
+  }
+  const i=v/r,p=v*i;
+  $("manualVoltage").textContent=v.toFixed(3);
+  $("manualCurrent").textContent=(i*1000).toFixed(3);
+  $("manualPower").textContent=(p*1000).toFixed(3);
+  $("formula").textContent=`I = V ÷ R = ${v} ÷ ${r} = ${(i*1000).toFixed(3)} mA ／ P = V × I = ${(p*1000).toFixed(3)} mW`;
+});
+drawChart();
+</script>
+</body>
+</html>
